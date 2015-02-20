@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 # Various bash bitcoin tools
 #
 # requires dc, the unix desktop calculator (which should be included in the
@@ -8,19 +8,19 @@
 #
 # This script uses GNU tools.  It is therefore not guaranted to work on a POSIX
 # system.
-# 
+#
 # Copyright (C) 2013 Lucien Grondin (grondilu@yahoo.fr)
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -30,18 +30,17 @@
 # SOFTWARE.
 
 
-if ((BASH_VERSINFO[0] < 4))
-then
-    echo "This script requires bash version 4 or above." >&2
-    exit 538510
-fi
+# Save the aliases
+save_aliases=$(alias -L)
+unalias -m '*'
 
-declare -a base58=(
+local -a base58
+base58=(
       1 2 3 4 5 6 7 8 9
     A B C D E F G H   J K L M N   P Q R S T U V W X Y Z
     a b c d e f g h i j k   m n o p q r s t u v w x y z
 )
-unset dcr; for i in {0..57}; do dcr+="${i}s${base58[i]}"; done
+unset dcr; for i in {0..57}; do dcr+="${i}s${base58[i + 1]}"; done
 declare ec_dc='
 I16i7sb0sa[[_1*lm1-*lm%q]Std0>tlm%Lts#]s%[Smddl%x-lm/rl%xLms#]s~
 483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
@@ -62,10 +61,11 @@ decodeBase58() {
     dc -e "$dcr 16o0$(sed 's/./ 58*l&+/g' <<<$1)p" |
     while read n; do echo -n ${n/\\/}; done
 }
+
 encodeBase58() {
     echo -n "$1" | sed -e's/^\(\(00\)*\).*/\1/' -e's/00/1/g'
-    dc -e "16i ${1^^} [3A ~r d0<x]dsxx +f" |
-    while read -r n; do echo -n "${base58[n]}"; done
+    dc -e "16i ${(U)1} [3A ~r d0<x]dsxx +f" |
+    while read -r n; do echo -n "${base58[n + 1]}"; done
 }
 
 checksum() {
@@ -101,16 +101,16 @@ newBitcoinKey() {
     then
 	local decoded="$(decodeBase58 "$1")"
 	if [[ "$decoded" =~ ^80([0-9A-F]{64})(01)?[0-9A-F]{8}$ ]]
-	then $FUNCNAME "0x${BASH_REMATCH[1]}"
+	then $0 "0x${match[1]}"
 	fi
     elif [[ "$1" =~ ^[0-9]+$ ]]
-    then $FUNCNAME "0x$(dc -e "16o$1p")"
-    elif [[ "${1^^}" =~ ^0X([0-9A-F]{1,64})$ ]]
-    then 
-	local exponent="${BASH_REMATCH[1]}"
+    then $0 "0x$(dc -e "16o$1p")"
+    elif [[ "${(U)1}" =~ ^0X([0-9A-F]{1,64})$ ]]
+    then
+	local exponent="${match[1]}"
 	local uncompressed_wif="$(hexToAddress "$exponent" 80 64)"
 	local compressed_wif="$(hexToAddress "${exponent}01" 80 66)"
-	dc -e "$ec_dc lG I16i${exponent^^}ri lMx 16olm~ n[ ]nn" |
+    dc -e "$ec_dc lG I16i${(U)exponent}ri lMx 16olm~ n[ ]nn" |
 	{
 	    read y x
 	    X="$(printf "%64s" $x| sed 's/ /0/g')"
@@ -134,7 +134,7 @@ newBitcoinKey() {
             echo "    bitcoin address:      $uncompressed_addr"
 	}
     elif test -z "$1"
-    then $FUNCNAME "0x$(openssl rand -rand <(date +%s%N; ps -ef) -hex 32 2>&-)"
+    then $0 "0x$(openssl rand -rand <(date +%s%N; ps -ef) -hex 32 2>&-)"
     else
 	echo unknown key format "$1" >&2
 	return 2
@@ -145,7 +145,7 @@ vanityAddressFromPublicPoint() {
     if [[ "$1" =~ ^04([0-9A-F]{64})([0-9A-F]{64})$ ]]
     then
 	dc <<<"$ec_dc 16o
-	0 ${BASH_REMATCH[1]} ${BASH_REMATCH[2]} rlp*+ 
+	0 ${match[1]} ${match[2]} rlp*+
 	[lGlAxdlm~rn[ ]nn[ ]nr1+prlLx]dsLx
 	" |
 	while read -r x y n
@@ -160,8 +160,11 @@ vanityAddressFromPublicPoint() {
 	    else echo "$n: $addr"
 	    fi
 	done
-    else 
+    else
 	echo unexpected format for public point >&2
 	return 1
     fi
 }
+
+# Restore aliases
+eval $save_aliases; unset save_aliases
